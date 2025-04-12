@@ -39,7 +39,10 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   explicit GLWidget(QMainWindow* parent = nullptr) :  
       QOpenGLWidget(parent),
       primary_edges_only_(false),
-      internal_edges_only_(false) {
+      internal_edges_only_(false),
+      point_count_(0),
+      segment_count_(0)
+       { 
     // Create offscreen surface for context initialization
     QSurfaceFormat format;
     format.setRenderableType(QSurfaceFormat::OpenGL);
@@ -54,15 +57,26 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     startTimer(40);
   }
 
+  void setPrimaryEdgesOnly(bool primary_edges_only) {
+    primary_edges_only_ = primary_edges_only;
+    update();
+  }
+
+  void setInternalEdgesOnly(bool internal_edges_only) {
+    internal_edges_only_ = internal_edges_only;
+    update();
+  }
+
+  
+  int get_point_count() const { return point_count_; }
+  int get_segment_count() const { return segment_count_; }
+
   void initializeGL() {
-    std::cout << "Initializing OpenGL context" << std::endl;
-    
     // Ensure proper context initialization
     initializeOpenGLFunctions();
     
     // Verify GL version
     std::cout << "OpenGL version: " << glGetString(GL_VERSION) << std::endl;
-
     glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_BLEND);
@@ -121,6 +135,7 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   void resizeGL(int width, int height) {
     int side = qMin(width, height);
     glViewport((width - side) / 2, (height - side) / 2, side, side);
+    update_view_port();
   }
 
   void timerEvent(QTimerEvent* e) {
@@ -128,7 +143,8 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     update();
     }
 
- private:
+
+private:
   typedef double coordinate_type;
   typedef point_data<coordinate_type> point_type;
   typedef segment_data<coordinate_type> segment_type;
@@ -153,9 +169,14 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     point_data_.clear();
     segment_data_.clear();
     vd_.clear();
+    point_count_ = 0;
+    segment_count_ = 0;
   }
 
   void read_data(const QString& file_path) {
+    point_count_ = 0;
+    segment_count_ = 0;
+    
     QFile data(file_path);
     if (!data.open(QFile::ReadOnly)) {
       QMessageBox::warning(
@@ -166,7 +187,7 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     
     QTextStream in_stream(&data);
     std::size_t num_points = 0, num_segments = 0;
-    int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    coordinate_type x1, y1, x2, y2;
 
     // Read points
     in_stream >> num_points;
@@ -187,6 +208,7 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
       point_data_.push_back(p);
     }
 
+    point_count_ = point_data_.size();
     // Read segments
     in_stream >> num_segments;
     if (in_stream.status() != QTextStream::Ok) {
@@ -208,6 +230,7 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
       segment_data_.push_back(segment_type(lp, hp));
     }
     
+    segment_count_ = segment_data_.size();
     in_stream.flush();
   }
 
@@ -222,9 +245,14 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
 
   void construct_brect() {
     double side = (std::max)(xh(brect_) - xl(brect_), yh(brect_) - yl(brect_));
+    if (side <= 0.0) {
+        side = 100.0;
+    }
     center(shift_, brect_);
     set_points(brect_, shift_, shift_);
-    bloat(brect_, side * 1.2);
+    bloat(brect_, side * 2.0);
+    double padding = side * 0.5;
+    bloat(brect_, padding);
   }
 
   void color_exterior(const VD::edge_type* edge) {
@@ -250,8 +278,8 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     glLoadIdentity();
     rect_type view_rect = brect_;
     deconvolve(view_rect, shift_);
-    glOrtho(xl(view_rect), xh(view_rect),
-            yl(view_rect), yh(view_rect),
+    glOrtho(xl(view_rect) , xh(view_rect) ,
+            yl(view_rect) , yh(view_rect) ,
             -1.0, 1.0);
     glMatrixMode(GL_MODELVIEW);
   }
@@ -309,6 +337,7 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
     }
     glEnd();
   }
+
   void draw_edges() {
     // Draw voronoi edges.
     glColor3f(0.0f, 0.0f, 0.0f);
@@ -435,6 +464,8 @@ class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   bool brect_initialized_;
   bool primary_edges_only_;
   bool internal_edges_only_;
+  int point_count_;
+  int segment_count_;
 };
 
 class MainWindow : public QWidget {
@@ -442,31 +473,24 @@ class MainWindow : public QWidget {
 
  public:
   MainWindow() {
-    std::cout << "1. MainWindow constructor start" << std::endl;
-    
-    std::cout << "2. Creating GLWidget" << std::endl;
     glWidget_ = new GLWidget();
-    
-    std::cout << "3. Setting layout" << std::endl;
     QHBoxLayout* centralLayout = new QHBoxLayout;
     centralLayout->addWidget(glWidget_);
     centralLayout->addLayout(create_file_layout());
     setLayout(centralLayout);
-    
-    std::cout << "4. Layout set" << std::endl;
     update_file_list();
     setWindowTitle(tr("Voronoi Visualizer"));
-    
-    std::cout << "5. MainWindow constructor complete" << std::endl;
   }
 
  private slots:
   void primary_edges_only() {
-    // glWidget_->show_primary_edges_only();
+    glWidget_->setPrimaryEdgesOnly(true);
+    glWidget_->setInternalEdgesOnly(false);
   }
 
   void internal_edges_only() {
-    // glWidget_->show_internal_edges_only();
+    glWidget_->setPrimaryEdgesOnly(false);
+    glWidget_->setInternalEdgesOnly(true);
   }
 
   void browse() {
@@ -484,7 +508,9 @@ class MainWindow : public QWidget {
     QString file_path = file_dir_.filePath(file_name_);
     message_label_->setText("Building...");
     glWidget_->build(file_path);
-    message_label_->setText("Double click the item to build voronoi diagram:");
+    
+    QString status = QString("Loaded %1 points, %2 segments").arg(glWidget_->get_point_count()).arg(glWidget_->get_segment_count());
+    message_label_->setText(status + "\nDouble click the item to build voronoi diagram:");
     setWindowTitle(tr("Voronoi Visualizer - ") + file_path);
   }
 
@@ -557,16 +583,12 @@ class MainWindow : public QWidget {
 };
 
 int main(int argc, char* argv[]) {
-  std::cout << "Starting application initialization" << std::endl;
   QApplication app(argc, argv);
   
-  std::cout << "Creating main window" << std::endl;
   MainWindow window;
   
-  std::cout << "Showing main window" << std::endl;
   window.show();
   
-  std::cout << "Entering application event loop" << std::endl;
   return app.exec();
 }
 
