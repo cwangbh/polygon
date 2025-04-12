@@ -10,24 +10,63 @@
 #include <iostream>
 #include <vector>
 
-#include <QtOpenGL/QGLWidget>
+#include <QOpenGLWidget>  // Changed from QtOpenGL/QGLWidget
 #include <QtGui/QtGui>
+#include <QOpenGLWidget>
+#include <QtWidgets>
+#include <QGridLayout>       // Add for QGridLayout
+#include <QHBoxLayout>       // Add for QHBoxLayout
+#include <QListWidget>       // Add for QListWidget
+#include <QCheckBox>         // Add for QCheckBox
+#include <QFileDialog>       // Add for QFileDialog
+#include <QLabel>            // Add for QLabel
+#include <QPushButton>       // Add for QPushButton
+#include <QDir>              // Add for QDir
 
 #include <boost/polygon/polygon.hpp>
 #include <boost/polygon/voronoi.hpp>
 using namespace boost::polygon;
 
 #include "voronoi_visual_utils.hpp"
+#include <QMainWindow>          // Add missing QMainWindow header
+#include <QMessageBox>          // Add QMessageBox header
+#include <QOpenGLFunctions>     // Add OpenGL functions header
 
-class GLWidget : public QGLWidget {
+class GLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
   Q_OBJECT
 
  public:
-  explicit GLWidget(QMainWindow* parent = NULL) :
-      QGLWidget(QGLFormat(QGL::SampleBuffers), parent),
+  explicit GLWidget(QMainWindow* parent = nullptr) :  
+      QOpenGLWidget(parent),
       primary_edges_only_(false),
       internal_edges_only_(false) {
+    // Create offscreen surface for context initialization
+    QSurfaceFormat format;
+    format.setRenderableType(QSurfaceFormat::OpenGL);
+    QOffscreenSurface* surface = new QOffscreenSurface();
+    surface->setFormat(format);
+    surface->create();
+    
+    // Make the context current before initialization
+    if(context()) {
+      context()->makeCurrent(surface);
+    }
     startTimer(40);
+  }
+
+  void initializeGL() {
+    std::cout << "Initializing OpenGL context" << std::endl;
+    
+    // Ensure proper context initialization
+    initializeOpenGLFunctions();
+    
+    // Verify GL version
+    std::cout << "OpenGL version: " << glGetString(GL_VERSION) << std::endl;
+
+    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND);
+    glEnable(GL_POINT_SMOOTH);
   }
 
   QSize sizeHint() const {
@@ -67,26 +106,12 @@ class GLWidget : public QGLWidget {
     update_view_port();
   }
 
-  void show_primary_edges_only() {
-    primary_edges_only_ ^= true;
-  }
-
-  void show_internal_edges_only() {
-    internal_edges_only_ ^= true;
-  }
-
  protected:
-  void initializeGL() {
-    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_BLEND);
-    glEnable(GL_POINT_SMOOTH);
-  }
+
 
   void paintGL() {
-    qglClearColor(QColor::fromRgb(255, 255, 255));
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);  // Replace qglClearColor with standard OpenGL
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
     draw_points();
     draw_segments();
     draw_vertices();
@@ -99,8 +124,9 @@ class GLWidget : public QGLWidget {
   }
 
   void timerEvent(QTimerEvent* e) {
+    Q_UNUSED(e);  // Suppress unused parameter warning
     update();
-  }
+    }
 
  private:
   typedef double coordinate_type;
@@ -134,27 +160,54 @@ class GLWidget : public QGLWidget {
     if (!data.open(QFile::ReadOnly)) {
       QMessageBox::warning(
           this, tr("Voronoi Visualizer"),
-          tr("Disable to open file ") + file_path);
+          tr("Unable to open file ") + file_path);
+      return;
     }
+    
     QTextStream in_stream(&data);
-    std::size_t num_points, num_segments;
-    int x1, y1, x2, y2;
+    std::size_t num_points = 0, num_segments = 0;
+    int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+
+    // Read points
     in_stream >> num_points;
+    if (in_stream.status() != QTextStream::Ok) {
+      QMessageBox::warning(this, tr("Error"), tr("Invalid points format"));
+      return;
+    }
+    
     for (std::size_t i = 0; i < num_points; ++i) {
       in_stream >> x1 >> y1;
+      if (in_stream.status() != QTextStream::Ok) {
+        QMessageBox::warning(this, tr("Error"), tr("Invalid point data"));
+        clear();
+        return;
+      }
       point_type p(x1, y1);
       update_brect(p);
       point_data_.push_back(p);
     }
+
+    // Read segments
     in_stream >> num_segments;
+    if (in_stream.status() != QTextStream::Ok) {
+      QMessageBox::warning(this, tr("Error"), tr("Invalid segments format"));
+      return;
+    }
+    
     for (std::size_t i = 0; i < num_segments; ++i) {
       in_stream >> x1 >> y1 >> x2 >> y2;
+      if (in_stream.status() != QTextStream::Ok) {
+        QMessageBox::warning(this, tr("Error"), tr("Invalid segment data"));
+        clear();
+        return;
+      }
       point_type lp(x1, y1);
       point_type hp(x2, y2);
       update_brect(lp);
       update_brect(hp);
       segment_data_.push_back(segment_type(lp, hp));
     }
+    
     in_stream.flush();
   }
 
@@ -389,27 +442,31 @@ class MainWindow : public QWidget {
 
  public:
   MainWindow() {
+    std::cout << "1. MainWindow constructor start" << std::endl;
+    
+    std::cout << "2. Creating GLWidget" << std::endl;
     glWidget_ = new GLWidget();
-    file_dir_ = QDir(QDir::currentPath(), tr("*.txt"));
-    file_name_ = tr("");
-
+    
+    std::cout << "3. Setting layout" << std::endl;
     QHBoxLayout* centralLayout = new QHBoxLayout;
     centralLayout->addWidget(glWidget_);
     centralLayout->addLayout(create_file_layout());
     setLayout(centralLayout);
-
+    
+    std::cout << "4. Layout set" << std::endl;
     update_file_list();
     setWindowTitle(tr("Voronoi Visualizer"));
-    layout()->setSizeConstraint(QLayout::SetFixedSize);
+    
+    std::cout << "5. MainWindow constructor complete" << std::endl;
   }
 
  private slots:
   void primary_edges_only() {
-    glWidget_->show_primary_edges_only();
+    // glWidget_->show_primary_edges_only();
   }
 
   void internal_edges_only() {
-    glWidget_->show_internal_edges_only();
+    // glWidget_->show_internal_edges_only();
   }
 
   void browse() {
@@ -433,7 +490,7 @@ class MainWindow : public QWidget {
 
   void print_scr() {
     if (!file_name_.isEmpty()) {
-      QImage screenshot = glWidget_->grabFrameBuffer(true);
+      QImage screenshot = glWidget_->grabFramebuffer();  // Correct method name
       QString output_file = file_dir_.absolutePath() + tr("/") +
           file_name_.left(file_name_.indexOf('.')) + tr(".png");
       screenshot.save(output_file, 0, -1);
@@ -500,9 +557,16 @@ class MainWindow : public QWidget {
 };
 
 int main(int argc, char* argv[]) {
+  std::cout << "Starting application initialization" << std::endl;
   QApplication app(argc, argv);
+  
+  std::cout << "Creating main window" << std::endl;
   MainWindow window;
+  
+  std::cout << "Showing main window" << std::endl;
   window.show();
+  
+  std::cout << "Entering application event loop" << std::endl;
   return app.exec();
 }
 

@@ -119,15 +119,17 @@ int main() {
   // Preparing Input Geometries.
   std::vector<Point> points;
   points.push_back(Point(0, 0));
-  points.push_back(Point(1, 6));
+  points.push_back(Point(0, 1));
+  points.push_back(Point(1, 1));
+  points.push_back(Point(1, 0));
   std::vector<Segment> segments;
-  segments.push_back(Segment(-4, 5, 5, -1));
-  segments.push_back(Segment(3, -11, 13, -1));
+  // segments.push_back(Segment(-4, 5, 5, -1));
+  // segments.push_back(Segment(3, -11, 13, -1));
 
   // Construction of the Voronoi Diagram.
   voronoi_diagram<double> vd;
   construct_voronoi(points.begin(), points.end(),
-                    segments.begin(), segments.end(),
+                    // segments.begin(), segments.end(),
                     &vd);
 
   // Traversing Voronoi Graph.
