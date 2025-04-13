@@ -18,6 +18,8 @@ include_directories(
 add_executable(voronoi_visualizer
   voronoi_visualizer.cpp
   voronoi_visual_utils.hpp
+  MainWindow.cpp
+  GLWidget.cpp
 )
 
 target_compile_definitions(voronoi_visualizer PRIVATE GL_SILENCE_DEPRECATION)
